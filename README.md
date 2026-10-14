@@ -71,9 +71,9 @@ Environment, and set `FUNCTION_NAME` to `function_name`.
 
 **Reference mode is a local-exec step.** The AWS provider does not yet expose
 `s3_object_storage_mode` on `aws_lambda_function`. The `terraform_data.reference_mode`
-resource runs the AWS CLI instead, and re-runs when the seed package changes.
-When the provider adds the argument, replace that resource with the argument and
-remove the local-exec.
+resource runs `scripts/set-reference-mode.sh` through `bash` instead, and
+re-runs when the seed package changes. When the provider adds the argument,
+replace that resource with the argument and remove the script.
 
 **Code is ignored after creation.** `ignore_changes` covers the code attributes,
 so Terraform never changes code on later applies. Deploy code through the
@@ -98,8 +98,11 @@ to memory, timeout, or layers need the policy detached first.
 ## Requirements
 
 - Terraform 1.5 or later, with AWS provider 6.0 or later.
-- AWS CLI 2.35.12 or later on the machine that runs `terraform apply`, used by
-  the reference-mode switch.
+- `bash` and AWS CLI 2.35.12 or later on the machine that runs
+  `terraform apply`. The reference-mode switch runs
+  `scripts/set-reference-mode.sh` through `bash`, because the AWS provider does
+  not yet expose the storage mode. On Windows, use Git Bash or WSL. CI runners
+  on Linux or macOS already have `bash`.
 - The applier needs `lambda:UpdateFunctionCode`, `lambda:GetFunction`,
   `lambda:GetFunctionConfiguration`, and `s3:PutObject` on the bucket.
 
@@ -115,42 +118,22 @@ to memory, timeout, or layers need the policy detached first.
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.68.0 |
-| <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.0.0 |
 
 ## Modules
 
-No modules.
+| Name | Source | Version |
+|------|--------|---------|
+| <a name="module_artifact_bucket"></a> [artifact\_bucket](#module\_artifact\_bucket) | ./modules/artifact-bucket | n/a |
+| <a name="module_function"></a> [function](#module\_function) | ./modules/function | n/a |
+| <a name="module_github_oidc_deploy"></a> [github\_oidc\_deploy](#module\_github\_oidc\_deploy) | ./modules/github-oidc-deploy | n/a |
+| <a name="module_human_deny"></a> [human\_deny](#module\_human\_deny) | ./modules/human-deny | n/a |
 
 ## Resources
 
 | Name | Type |
 |------|------|
-| [aws_cloudwatch_log_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
-| [aws_iam_openid_connect_provider.github](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_openid_connect_provider) | resource |
-| [aws_iam_policy.deny_direct_edits](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
-| [aws_iam_role.deploy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
-| [aws_iam_role.exec](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
-| [aws_iam_role_policy.app](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
-| [aws_iam_role_policy.deploy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
-| [aws_iam_role_policy_attachment.basic_logging](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
-| [aws_iam_role_policy_attachment.deny_direct_edits](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
-| [aws_lambda_function.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_function) | resource |
-| [aws_s3_bucket.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
-| [aws_s3_bucket_lifecycle_configuration.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_lifecycle_configuration) | resource |
-| [aws_s3_bucket_policy.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_policy) | resource |
-| [aws_s3_bucket_public_access_block.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
-| [aws_s3_bucket_server_side_encryption_configuration.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
-| [aws_s3_bucket_versioning.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
-| [aws_s3_object.seed](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_object) | resource |
-| [terraform_data.reference_mode](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [aws_caller_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
-| [aws_iam_openid_connect_provider.github](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_openid_connect_provider) | data source |
-| [aws_iam_policy_document.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
-| [aws_iam_policy_document.deny_direct_edits](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
-| [aws_iam_policy_document.deploy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
-| [aws_iam_policy_document.deploy_trust](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
-| [aws_iam_policy_document.lambda_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
 | [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
 
