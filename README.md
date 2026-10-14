@@ -9,36 +9,30 @@ Terraform manages the infrastructure and settings. The pipeline manages the code
 
 ## How it works
 
-```mermaid
-flowchart TD
-    subgraph Provision["Terraform (infrastructure)"]
-        TF[terraform apply]
-        TF --> BUCKET[S3 artifact bucket<br/>versioned, encrypted]
-        TF --> FN[Lambda function<br/>reference mode]
-        TF --> EXEC[Execution role]
-        TF --> DEPLOY[GitHub OIDC deploy role]
-        TF --> DENY[Human deny policy]
-    end
+```text
+  Terraform (infrastructure)                 GitHub Actions (code)
+  ---------------------------                ---------------------
+  terraform apply creates:                   push to branch
+    - S3 artifact bucket  <------------------ 1. PutObject new .zip
+      (versioned, encrypted)                     |  (via OIDC deploy role)
+    - Lambda function     <------------------ 2. UpdateFunctionCode
+      (reference mode)  |                         + PublishVersion
+    - execution role    |
+    - OIDC deploy role  |  reads package at runtime
+    - human deny policy |---------------------------> S3 artifact bucket
 
-    subgraph Pipeline["GitHub Actions (code)"]
-        PUSH[Push to branch] --> GHA[Workflow job]
-        GHA -->|AssumeRoleWithWebIdentity via OIDC| DEPLOY
-        GHA -->|1 . PutObject new .zip| BUCKET
-        GHA -->|2 . UpdateFunctionCode + PublishVersion| FN
-    end
-
-    FN -.->|reads package at runtime| BUCKET
-
-    HUMAN[Human / console roles] -.->|UpdateCode, Config, Delete| DENY
-    DENY ==>|explicit Deny| BLOCK((blocked))
-
-    classDef denied fill:#fdd,stroke:#c33,color:#900;
-    class BLOCK,DENY denied;
+  Human / console roles --> [human deny policy] --> explicit Deny (blocked)
 ```
 
-The pipeline is the only path that changes the function. Human roles listed in
-`human_role_names` are blocked from editing the Lambda directly; the deploy role
-is never covered by the deny, so CI/CD keeps working.
+Flow:
+
+1. Terraform provisions the bucket, function, roles, and the human deny policy.
+2. On a push, GitHub Actions assumes the OIDC deploy role, uploads the new
+   `.zip` to S3, then calls `UpdateFunctionCode` and `PublishVersion`.
+3. The Lambda reads its package directly from S3 at runtime (reference mode).
+4. Human roles listed in `human_role_names` hit an explicit Deny and cannot
+   edit the function. The deploy role is never covered by the deny, so CI/CD
+   keeps working. The pipeline is the only path that changes the function.
 
 ## What it creates
 
