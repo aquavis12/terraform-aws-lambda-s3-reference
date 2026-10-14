@@ -1,55 +1,16 @@
-# terraform-aws-lambda-s3-reference
+# AWS Lambda S3 Reference-Mode Terraform module
 
-A Terraform module for a Lambda function that runs in **reference mode**. The
-function reads its deployment package from an S3 bucket you own, and GitHub
-Actions deploys new code. The module also sets up the bucket, the roles, the
-GitHub OIDC trust, and an optional deny policy that blocks direct console edits.
+Terraform module which creates a Lambda function that runs in **reference
+mode**: the function reads its deployment package directly from an S3 bucket you
+own, and GitHub Actions deploys new code through an OIDC-trusted role. The
+module also provisions the artifact bucket, the IAM roles, the GitHub OIDC
+trust, and an optional deny policy that blocks direct console or CLI edits.
 
-Terraform manages the infrastructure and settings. The pipeline manages the code.
-
-## How it works
-
-```text
-  Terraform (infrastructure)                 GitHub Actions (code)
-  ---------------------------                ---------------------
-  terraform apply creates:                   push to branch
-    - S3 artifact bucket  <------------------ 1. PutObject new .zip
-      (versioned, encrypted)                     |  (via OIDC deploy role)
-    - Lambda function     <------------------ 2. UpdateFunctionCode
-      (reference mode)  |                         + PublishVersion
-    - execution role    |
-    - OIDC deploy role  |  reads package at runtime
-    - human deny policy |---------------------------> S3 artifact bucket
-
-  Human / console roles --> [human deny policy] --> explicit Deny (blocked)
-```
-
-Flow:
-
-1. Terraform provisions the bucket, function, roles, and the human deny policy.
-2. On a push, GitHub Actions assumes the OIDC deploy role, uploads the new
-   `.zip` to S3, then calls `UpdateFunctionCode` and `PublishVersion`.
-3. The Lambda reads its package directly from S3 at runtime (reference mode).
-4. Human roles listed in `human_role_names` hit an explicit Deny and cannot
-   edit the function. The deploy role is never covered by the deny, so CI/CD
-   keeps working. The pipeline is the only path that changes the function.
-
-## What it creates
-
-| Resource | Purpose |
-|---|---|
-| S3 bucket | Artifact store. Versioned, encrypted with SSE-S3, public access blocked |
-| Bucket policy | Lets the Lambda service read `functions/*`, scoped to this function. Optionally denies deletes for everyone |
-| Seed object | The first package, uploaded from `seed_zip_path` |
-| Lambda function | Created from the seed package, then switched to reference mode |
-| Log group | Retention set by `log_retention_days` |
-| Execution role | Basic logging, plus an optional inline policy you supply |
-| Deploy role | Assumed by GitHub Actions through OIDC. Can update code and publish, nothing else |
-| Deny policy | Optional. Blocks code and configuration edits by named human roles |
+Terraform owns the infrastructure and configuration. The pipeline owns the code.
 
 ## Usage
 
-From the Terraform Registry:
+### From the Terraform Registry
 
 ```hcl
 module "lambda_function" {
@@ -61,10 +22,15 @@ module "lambda_function" {
   seed_zip_path     = "${path.module}/seed/bootstrap.zip"
   github_repository = "aquavis12/my-repo"
   github_subjects   = ["environment:main"]
+
+  tags = {
+    Terraform   = "true"
+    Environment = "dev"
+  }
 }
 ```
 
-Or straight from Git, pinned to a release tag:
+### From Git, pinned to a release tag
 
 ```hcl
 module "lambda_function" {
@@ -79,61 +45,157 @@ module "lambda_function" {
 ```
 
 `seed_zip_path` must point at a real zip built for your runtime and
-architecture. `examples/basic/seed/bootstrap.zip` is a placeholder for a quick
-`terraform plan`; replace it with your own package before `apply`.
+architecture. After the first apply, the pipeline owns the code and Terraform
+ignores code changes. Set the module outputs `artifact_bucket` and
+`deploy_role_arn` as `ARTIFACT_BUCKET` and `AWS_DEPLOY_ROLE_ARN` in the GitHub
+Environment, and set `FUNCTION_NAME` to `function_name`.
 
-See `examples/basic` for a complete example. Outputs include `artifact_bucket`
-and `deploy_role_arn`. Set those as `ARTIFACT_BUCKET` and `AWS_DEPLOY_ROLE_ARN`
-in the GitHub Environment, and set `FUNCTION_NAME` to `function_name`.
+## What it creates
 
-## Requirements
+| Resource | Purpose |
+|---|---|
+| S3 bucket | Artifact store. Versioned, encrypted with SSE-S3, public access blocked |
+| Bucket policy | Lets the Lambda service read the artifact prefix, scoped to this function. Optionally denies deletes for everyone |
+| Seed object | The first package, uploaded from `seed_zip_path` |
+| Lambda function | Created from the seed package, then switched to reference mode |
+| Log group | Retention set by `log_retention_days` |
+| Execution role | Basic logging, plus an optional inline policy you supply |
+| Deploy role | Assumed by GitHub Actions through OIDC. Can update code and publish, nothing else |
+| Deny policy | Optional. Blocks code and configuration edits by named human roles |
 
-- Terraform 1.5 or later, with AWS provider 6.0 or later
-- AWS CLI 2.35.12 or later on the machine that runs `terraform apply`. The
-  reference-mode switch uses it, because the Terraform AWS provider does not
-  yet support the storage mode.
-- The applier needs `lambda:UpdateFunctionCode`, `lambda:GetFunction`,
-  `lambda:GetFunctionConfiguration`, and `s3:PutObject` on the bucket.
-- A zip package built for the runtime and architecture you set. Python packages
-  go in the zip. Only compiled binaries belong in layers.
+## Examples
+
+- [basic](https://github.com/aquavis12/terraform-aws-lambda-s3-reference/tree/master/examples/basic) - Lambda in reference mode with an S3 artifact bucket, a GitHub OIDC deploy role, and a human deny policy
 
 ## Known limitations
 
 **Reference mode is a local-exec step.** The AWS provider does not yet expose
 `s3_object_storage_mode` on `aws_lambda_function`. The `terraform_data.reference_mode`
-resource runs the CLI instead. It re-runs when the seed package changes.
-When the provider adds the argument, replace that resource with the argument
-and remove the local-exec.
+resource runs the AWS CLI instead, and re-runs when the seed package changes.
+When the provider adds the argument, replace that resource with the argument and
+remove the local-exec.
 
-**Code is ignored after creation.** `ignore_changes` covers the code attributes.
-Terraform will not change code on later applies. Deploy code through the
-pipeline. A code change made directly through Terraform would also reset the
-storage mode, if the reference step did not run again.
+**Code is ignored after creation.** `ignore_changes` covers the code attributes,
+so Terraform never changes code on later applies. Deploy code through the
+pipeline.
 
 **Destroy needs a manual step when deletion is denied.** With
 `deny_artifact_deletion = true`, no principal can delete objects or versions, so
-`terraform destroy` cannot empty the bucket. To tear down:
+`terraform destroy` cannot empty the bucket. To tear down: apply with
+`deny_artifact_deletion = false` (or detach the deny), delete all object
+versions and delete markers, then run `terraform destroy`. This is intentional
+friction; do it under a change request.
 
-1. Detach the deny policy and the bucket policy deny statement, or apply with `deny_artifact_deletion = false`.
-2. Delete all object versions and delete markers in the bucket.
-3. Run `terraform destroy`.
+**Noncurrent-version expiry is off by default.** `noncurrent_version_expiry_days`
+is null. A lifecycle rule that expires old versions can break a published
+version that still points at them. Turn it on only after checking the versions
+in use.
 
-Do this under a change request. It is intentional friction.
+**The deny policy also blocks configuration edits.** Once a human-deny policy is
+attached, `UpdateFunctionConfiguration` is blocked for those roles too. Changes
+to memory, timeout, or layers need the policy detached first.
 
-**Retention is off by default.** `noncurrent_version_expiry_days` is null. A
-lifecycle rule that expires old versions can break a published version that
-still points at them. Turn it on only after checking the versions in use.
+## Requirements
 
-**Pinning the function to the pipeline.** Once a human-deny policy is attached,
-`UpdateFunctionConfiguration` is also blocked for those roles. Changes to memory,
-timeout or layers then need the policy detached first.
+- Terraform 1.5 or later, with AWS provider 6.0 or later.
+- AWS CLI 2.35.12 or later on the machine that runs `terraform apply`, used by
+  the reference-mode switch.
+- The applier needs `lambda:UpdateFunctionCode`, `lambda:GetFunction`,
+  `lambda:GetFunctionConfiguration`, and `s3:PutObject` on the bucket.
 
-## Development status
+<!-- BEGIN_TF_DOCS -->
+## Requirements
 
-The module passes `terraform fmt` and `terraform validate` with AWS provider 6.x.
-It has **not** yet been run with `terraform plan` or `apply` against an AWS
-account. Run both in a sandbox account before using it for production.
+| Name | Version |
+|------|---------|
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.0.0 |
 
-## Versioning
+## Providers
 
-Tag releases with semantic versions. Consumers pin a tag with `?ref=vX.Y.Z`.
+| Name | Version |
+|------|---------|
+| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.68.0 |
+| <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
+
+## Modules
+
+No modules.
+
+## Resources
+
+| Name | Type |
+|------|------|
+| [aws_cloudwatch_log_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
+| [aws_iam_openid_connect_provider.github](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_openid_connect_provider) | resource |
+| [aws_iam_policy.deny_direct_edits](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
+| [aws_iam_role.deploy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role.exec](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role_policy.app](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_iam_role_policy.deploy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_iam_role_policy_attachment.basic_logging](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
+| [aws_iam_role_policy_attachment.deny_direct_edits](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
+| [aws_lambda_function.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_function) | resource |
+| [aws_s3_bucket.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
+| [aws_s3_bucket_lifecycle_configuration.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_lifecycle_configuration) | resource |
+| [aws_s3_bucket_policy.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_policy) | resource |
+| [aws_s3_bucket_public_access_block.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
+| [aws_s3_bucket_server_side_encryption_configuration.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
+| [aws_s3_bucket_versioning.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
+| [aws_s3_object.seed](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_object) | resource |
+| [terraform_data.reference_mode](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [aws_caller_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
+| [aws_iam_openid_connect_provider.github](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_openid_connect_provider) | data source |
+| [aws_iam_policy_document.artifacts](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.deny_direct_edits](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.deploy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.deploy_trust](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.lambda_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
+| [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| <a name="input_architectures"></a> [architectures](#input\_architectures) | Instruction set. The package must be built for the same one. | `list(string)` | <pre>[<br/>  "x86_64"<br/>]</pre> | no |
+| <a name="input_artifact_bucket_name"></a> [artifact\_bucket\_name](#input\_artifact\_bucket\_name) | Name of the artifact bucket. Defaults to <function\_name>-artifacts-<account>-<region>. | `string` | `null` | no |
+| <a name="input_artifact_prefix"></a> [artifact\_prefix](#input\_artifact\_prefix) | Key prefix in the bucket that holds deployment packages. The Lambda read grant covers this prefix only. | `string` | `"functions/"` | no |
+| <a name="input_create_oidc_provider"></a> [create\_oidc\_provider](#input\_create\_oidc\_provider) | Create the GitHub OIDC provider. Leave false if the account already has one, because only one is allowed per URL. | `bool` | `false` | no |
+| <a name="input_deny_artifact_deletion"></a> [deny\_artifact\_deletion](#input\_deny\_artifact\_deletion) | Deny object deletion and versioning changes for every principal, including<br/>administrators. Recommended: a live function re-reads its object, so a<br/>deleted object makes the function Inactive. Note that with this on,<br/>`terraform destroy` cannot empty the bucket; see the README. | `bool` | `true` | no |
+| <a name="input_environment_variables"></a> [environment\_variables](#input\_environment\_variables) | Environment variables for the function. | `map(string)` | `{}` | no |
+| <a name="input_ephemeral_storage_mb"></a> [ephemeral\_storage\_mb](#input\_ephemeral\_storage\_mb) | Size of /tmp in MB (512 to 10240). | `number` | `512` | no |
+| <a name="input_execution_policy_json"></a> [execution\_policy\_json](#input\_execution\_policy\_json) | Optional inline policy JSON for the execution role (for example DynamoDB, S3 and Textract access). | `string` | `null` | no |
+| <a name="input_function_name"></a> [function\_name](#input\_function\_name) | Name of the Lambda function. Also used to name the bucket, roles and log group. | `string` | n/a | yes |
+| <a name="input_github_repository"></a> [github\_repository](#input\_github\_repository) | GitHub repository allowed to deploy, in owner/name form. | `string` | n/a | yes |
+| <a name="input_github_subjects"></a> [github\_subjects](#input\_github\_subjects) | Subjects allowed to assume the deploy role, relative to the repository.<br/>Use "environment:<name>" when the workflow job declares a GitHub<br/>Environment, or "ref:refs/heads/<branch>" otherwise. Keep this narrow. | `list(string)` | <pre>[<br/>  "environment:main"<br/>]</pre> | no |
+| <a name="input_handler"></a> [handler](#input\_handler) | Handler in module.function form, for example main.handler. | `string` | `"main.handler"` | no |
+| <a name="input_human_role_names"></a> [human\_role\_names](#input\_human\_role\_names) | IAM role names that must not edit this function directly. The deny policy is attached to each. | `list(string)` | `[]` | no |
+| <a name="input_layers"></a> [layers](#input\_layers) | ARNs of existing layer versions to attach. This module does not create<br/>layers. Layers are optional with self-managed S3 storage; you can bundle<br/>dependencies in the function zip instead. Keep large or shared compiled<br/>binaries in layers when it suits your build. | `list(string)` | `[]` | no |
+| <a name="input_log_retention_days"></a> [log\_retention\_days](#input\_log\_retention\_days) | CloudWatch log retention in days. | `number` | `30` | no |
+| <a name="input_memory_size"></a> [memory\_size](#input\_memory\_size) | Memory in MB. | `number` | `512` | no |
+| <a name="input_noncurrent_version_expiry_days"></a> [noncurrent\_version\_expiry\_days](#input\_noncurrent\_version\_expiry\_days) | Expire old object versions after this many days. Null disables expiry.<br/>Leave null unless you have checked that no published version still<br/>references the versions you would expire. | `number` | `null` | no |
+| <a name="input_runtime"></a> [runtime](#input\_runtime) | Lambda runtime. Must match the Python version the package was built for. | `string` | `"python3.12"` | no |
+| <a name="input_seed_zip_path"></a> [seed\_zip\_path](#input\_seed\_zip\_path) | Local path to the first deployment package. Terraform uploads it to the<br/>artifact bucket and creates the function from it. After that, the CI/CD<br/>pipeline owns the code and Terraform ignores code changes. | `string` | n/a | yes |
+| <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to all resources that support them. | `map(string)` | `{}` | no |
+| <a name="input_timeout"></a> [timeout](#input\_timeout) | Timeout in seconds (maximum 900). | `number` | `30` | no |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| <a name="output_artifact_bucket"></a> [artifact\_bucket](#output\_artifact\_bucket) | Artifact bucket name. Set this as ARTIFACT\_BUCKET in the pipeline. |
+| <a name="output_deploy_role_arn"></a> [deploy\_role\_arn](#output\_deploy\_role\_arn) | Role for GitHub Actions. Set this as AWS\_DEPLOY\_ROLE\_ARN in the GitHub Environment. |
+| <a name="output_execution_role_arn"></a> [execution\_role\_arn](#output\_execution\_role\_arn) | Execution role of the function. |
+| <a name="output_function_arn"></a> [function\_arn](#output\_function\_arn) | ARN of the Lambda function. |
+| <a name="output_function_name"></a> [function\_name](#output\_function\_name) | Name of the Lambda function. |
+| <a name="output_reference_mode_applied"></a> [reference\_mode\_applied](#output\_reference\_mode\_applied) | Identifier of the reference-mode switch. Changes when the seed package changes. |
+<!-- END_TF_DOCS -->
+
+## Authors
+
+Maintained by [vishnu](https://github.com/aquavis12).
+
+## License
+
+MIT Licensed. See [LICENSE](https://github.com/aquavis12/terraform-aws-lambda-s3-reference/blob/master/LICENSE).
