@@ -32,20 +32,22 @@ module "artifact_bucket" {
 module "function" {
   source = "./modules/function"
 
-  function_name         = var.function_name
-  partition             = local.partition
-  region                = local.region
-  runtime               = var.runtime
-  handler               = var.handler
-  architectures         = var.architectures
-  memory_size           = var.memory_size
-  timeout               = var.timeout
-  ephemeral_storage_mb  = var.ephemeral_storage_mb
-  layers                = var.layers
-  environment_variables = var.environment_variables
-  log_retention_days    = var.log_retention_days
-  execution_policy_json = var.execution_policy_json
-  allowed_invokers      = var.allowed_invokers
+  function_name          = var.function_name
+  partition              = local.partition
+  region                 = local.region
+  runtime                = var.runtime
+  handler                = var.handler
+  architectures          = var.architectures
+  memory_size            = var.memory_size
+  timeout                = var.timeout
+  ephemeral_storage_mb   = var.ephemeral_storage_mb
+  layers                 = var.layers
+  environment_variables  = var.environment_variables
+  log_retention_days     = var.log_retention_days
+  execution_policy_json  = var.execution_policy_json
+  execution_policy_jsons = var.execution_policy_jsons
+  managed_policy_arns    = var.managed_policy_arns
+  allowed_invokers       = var.allowed_invokers
 
   artifact_bucket_id       = module.artifact_bucket.bucket_id
   seed_key                 = module.artifact_bucket.seed_key

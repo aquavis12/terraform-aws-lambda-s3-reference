@@ -34,7 +34,7 @@ module "lambda_function" {
 
 ```hcl
 module "lambda_function" {
-  source = "git::https://github.com/aquavis12/terraform-aws-lambda-s3-reference.git?ref=v1.2.0"
+  source = "git::https://github.com/aquavis12/terraform-aws-lambda-s3-reference.git?ref=v1.2.1"
 
   function_name     = "my-function"
   handler           = "main.handler"
@@ -102,7 +102,7 @@ of wiring an `aws_lambda_permission` by hand.
 | Seed object | The first package, uploaded from `seed_zip_path` |
 | Lambda function | Created from the seed package, then switched to reference mode |
 | Log group | Retention set by `log_retention_days` |
-| Execution role | Basic logging, plus an optional inline policy you supply |
+| Execution role | Basic logging, plus inline policies you supply (`execution_policy_json`, or `execution_policy_jsons` keyed per concern) and any `managed_policy_arns` you attach |
 | Deploy role | Assumed by GitHub Actions through OIDC. Can update code and publish, nothing else |
 | Deny policy | Optional. Blocks code and configuration edits by named human roles |
 | HTTP API | Optional (`enable_api_gateway`). API Gateway v2 with an AWS_PROXY integration, access logging, and an invoke permission scoped to this API |
@@ -206,6 +206,7 @@ drive it from the pipeline after the upload.
 | <a name="input_environment_variables"></a> [environment\_variables](#input\_environment\_variables) | Environment variables for the function. | `map(string)` | `{}` | no |
 | <a name="input_ephemeral_storage_mb"></a> [ephemeral\_storage\_mb](#input\_ephemeral\_storage\_mb) | Size of /tmp in MB (512 to 10240). | `number` | `512` | no |
 | <a name="input_execution_policy_json"></a> [execution\_policy\_json](#input\_execution\_policy\_json) | Optional inline policy JSON for the execution role (for example DynamoDB, S3 and Textract access). | `string` | `null` | no |
+| <a name="input_execution_policy_jsons"></a> [execution\_policy\_jsons](#input\_execution\_policy\_jsons) | Additional inline policies for the execution role, keyed by name. Prefer<br/>this over one big execution\_policy\_json when the function has several event<br/>sources: give each (for example "sqs", "dynamodb-streams") its own entry.<br/>Each value is an IAM policy JSON document. | `map(string)` | `{}` | no |
 | <a name="input_function_name"></a> [function\_name](#input\_function\_name) | Name of the Lambda function. Also used to name the bucket, roles and log group. | `string` | n/a | yes |
 | <a name="input_github_repository"></a> [github\_repository](#input\_github\_repository) | GitHub repository allowed to deploy, in owner/name form. | `string` | n/a | yes |
 | <a name="input_github_subjects"></a> [github\_subjects](#input\_github\_subjects) | Subjects allowed to assume the deploy role, relative to the repository.<br/>Use "environment:<name>" when the workflow job declares a GitHub<br/>Environment, or "ref:refs/heads/<branch>" otherwise. Keep this narrow. | `list(string)` | <pre>[<br/>  "environment:main"<br/>]</pre> | no |
@@ -213,6 +214,7 @@ drive it from the pipeline after the upload.
 | <a name="input_human_role_names"></a> [human\_role\_names](#input\_human\_role\_names) | IAM role names that must not edit this function directly. The deny policy is attached to each. | `list(string)` | `[]` | no |
 | <a name="input_layers"></a> [layers](#input\_layers) | ARNs of existing layer versions to attach. This module does not create<br/>layers. Layers are optional with self-managed S3 storage; you can bundle<br/>dependencies in the function zip instead. Keep large or shared compiled<br/>binaries in layers when it suits your build. | `list(string)` | `[]` | no |
 | <a name="input_log_retention_days"></a> [log\_retention\_days](#input\_log\_retention\_days) | CloudWatch log retention in days. | `number` | `30` | no |
+| <a name="input_managed_policy_arns"></a> [managed\_policy\_arns](#input\_managed\_policy\_arns) | ARNs of existing managed policies to attach to the execution role. | `list(string)` | `[]` | no |
 | <a name="input_memory_size"></a> [memory\_size](#input\_memory\_size) | Memory in MB. | `number` | `512` | no |
 | <a name="input_noncurrent_version_expiry_days"></a> [noncurrent\_version\_expiry\_days](#input\_noncurrent\_version\_expiry\_days) | Expire old object versions after this many days. Null disables expiry.<br/>Leave null unless you have checked that no published version still<br/>references the versions you would expire. | `number` | `null` | no |
 | <a name="input_runtime"></a> [runtime](#input\_runtime) | Lambda runtime. Must match the Python version the package was built for. | `string` | `"python3.12"` | no |

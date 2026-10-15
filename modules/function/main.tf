@@ -35,6 +35,23 @@ resource "aws_iam_role_policy" "app" {
   policy = var.execution_policy_json
 }
 
+# Named inline policies, one per concern. Keeps event-source grants (SQS,
+# streams, etc.) separate instead of forcing them into a single blob.
+resource "aws_iam_role_policy" "named" {
+  for_each = var.execution_policy_jsons
+
+  name   = each.key
+  role   = aws_iam_role.exec.id
+  policy = each.value
+}
+
+resource "aws_iam_role_policy_attachment" "managed" {
+  for_each = toset(var.managed_policy_arns)
+
+  role       = aws_iam_role.exec.name
+  policy_arn = each.value
+}
+
 # ============================================================ function
 # Created from the seed package. Code attributes are ignored afterwards, so
 # Terraform never calls UpdateFunctionCode on a later apply. Reference mode is
@@ -68,6 +85,8 @@ resource "aws_lambda_function" "this" {
     aws_cloudwatch_log_group.this,
     aws_iam_role_policy_attachment.basic_logging,
     aws_iam_role_policy.app,
+    aws_iam_role_policy.named,
+    aws_iam_role_policy_attachment.managed,
   ]
 
   lifecycle {

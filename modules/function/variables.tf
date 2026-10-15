@@ -63,6 +63,21 @@ variable "execution_policy_json" {
   type        = string
 }
 
+variable "execution_policy_jsons" {
+  description = <<-EOT
+    Additional inline policies for the execution role, keyed by name. Use one
+    entry per concern (for example "sqs", "dynamodb-streams") so event sources
+    each get their own grant instead of sharing one blob. Each value is an IAM
+    policy JSON document.
+  EOT
+  type        = map(string)
+}
+
+variable "managed_policy_arns" {
+  description = "ARNs of existing managed policies to attach to the execution role."
+  type        = list(string)
+}
+
 variable "artifact_bucket_id" {
   description = "Name of the artifact bucket holding the package."
   type        = string

@@ -155,6 +155,23 @@ variable "execution_policy_json" {
   default     = null
 }
 
+variable "execution_policy_jsons" {
+  description = <<-EOT
+    Additional inline policies for the execution role, keyed by name. Prefer
+    this over one big execution_policy_json when the function has several event
+    sources: give each (for example "sqs", "dynamodb-streams") its own entry.
+    Each value is an IAM policy JSON document.
+  EOT
+  type        = map(string)
+  default     = {}
+}
+
+variable "managed_policy_arns" {
+  description = "ARNs of existing managed policies to attach to the execution role."
+  type        = list(string)
+  default     = []
+}
+
 # ------------------------------------------------------------- CI/CD
 variable "github_repository" {
   description = "GitHub repository allowed to deploy, in owner/name form."
