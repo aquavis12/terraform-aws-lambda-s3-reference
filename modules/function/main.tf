@@ -99,3 +99,18 @@ resource "terraform_data" "reference_mode" {
     }
   }
 }
+
+# ============================================================ invoke permissions
+# Resource-based policy statements that let other services call this function.
+# These touch only the function's resource policy, not its code, so they are
+# safe alongside reference mode.
+resource "aws_lambda_permission" "invoke" {
+  for_each = var.allowed_invokers
+
+  statement_id   = each.key
+  action         = "lambda:InvokeFunction"
+  function_name  = aws_lambda_function.this.function_name
+  principal      = each.value.principal
+  source_arn     = each.value.source_arn
+  source_account = each.value.source_account
+}

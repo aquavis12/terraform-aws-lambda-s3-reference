@@ -83,6 +83,25 @@ variable "bucket_policy_dependency" {
   type        = string
 }
 
+variable "allowed_invokers" {
+  description = <<-EOT
+    Resource-based permissions that let other services invoke this function.
+    Keyed by a stable statement id. This only touches the function's resource
+    policy, never its code, so it is independent of reference mode.
+
+    - principal:   service principal allowed to invoke, e.g. "apigateway.amazonaws.com".
+    - source_arn:  optional ARN that scopes the grant to one caller. Strongly
+                   recommended; without it any resource using that principal can invoke.
+    - source_account: optional account id, useful when source_arn is not known at plan time.
+  EOT
+  type = map(object({
+    principal      = string
+    source_arn     = optional(string)
+    source_account = optional(string)
+  }))
+  default = {}
+}
+
 variable "tags" {
   description = "Tags applied to all resources that support them."
   type        = map(string)

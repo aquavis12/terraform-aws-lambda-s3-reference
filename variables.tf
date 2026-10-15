@@ -82,6 +82,21 @@ variable "environment_variables" {
   default     = {}
 }
 
+variable "allowed_invokers" {
+  description = <<-EOT
+    Extra resource-based permissions that let other services invoke the
+    function, keyed by statement id. The built-in API Gateway and Step
+    Functions wiring (enable_api_gateway, enable_step_functions) add their own
+    permissions automatically; use this for anything you wire by hand.
+  EOT
+  type = map(object({
+    principal      = string
+    source_arn     = optional(string)
+    source_account = optional(string)
+  }))
+  default = {}
+}
+
 # ------------------------------------------------------------- seed package
 variable "seed_zip_path" {
   description = <<-EOT
@@ -172,6 +187,61 @@ variable "human_role_names" {
   description = "IAM role names that must not edit this function directly. The deny policy is attached to each."
   type        = list(string)
   default     = []
+}
+
+# ------------------------------------------------------------- API Gateway wiring
+variable "enable_api_gateway" {
+  description = "Front the function with an HTTP API (API Gateway v2) using an AWS_PROXY integration."
+  type        = bool
+  default     = false
+}
+
+variable "api_gateway" {
+  description = <<-EOT
+    Settings for the HTTP API, used only when enable_api_gateway is true.
+    routes default to a catch-all so the function owns routing. cors_configuration
+    is null (disabled) by default. See modules/api-gateway for the full shape.
+  EOT
+  type = object({
+    routes = optional(map(object({
+      route_key = string
+    })), { default = { route_key = "ANY /{proxy+}" } })
+    stage_name             = optional(string, "$default")
+    payload_format_version = optional(string, "2.0")
+    cors_configuration = optional(object({
+      allow_origins     = optional(list(string), [])
+      allow_methods     = optional(list(string), [])
+      allow_headers     = optional(list(string), [])
+      expose_headers    = optional(list(string), [])
+      allow_credentials = optional(bool, false)
+      max_age           = optional(number)
+    }))
+    log_retention_days = optional(number, 30)
+  })
+  default = {}
+}
+
+# ------------------------------------------------------------- Step Functions wiring
+variable "enable_step_functions" {
+  description = "Create a Step Functions state machine that invokes the function."
+  type        = bool
+  default     = false
+}
+
+variable "step_functions" {
+  description = <<-EOT
+    Settings for the state machine, used only when enable_step_functions is
+    true. definition null uses the built-in single-task invoke workflow. See
+    modules/step-functions for the full shape.
+  EOT
+  type = object({
+    state_machine_type     = optional(string, "STANDARD")
+    definition             = optional(string)
+    additional_policy_json = optional(string)
+    log_level              = optional(string, "ERROR")
+    log_retention_days     = optional(number, 30)
+  })
+  default = {}
 }
 
 variable "tags" {

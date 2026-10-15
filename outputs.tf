@@ -27,3 +27,18 @@ output "reference_mode_applied" {
   description = "Identifier of the reference-mode switch. Changes when the seed package changes."
   value       = module.function.reference_mode_id
 }
+
+output "api_endpoint" {
+  description = "Base invoke URL of the HTTP API, or null when API Gateway wiring is disabled."
+  value       = var.enable_api_gateway ? module.api_gateway[0].api_endpoint : null
+}
+
+output "api_id" {
+  description = "ID of the HTTP API, or null when API Gateway wiring is disabled."
+  value       = var.enable_api_gateway ? module.api_gateway[0].api_id : null
+}
+
+output "state_machine_arn" {
+  description = "ARN of the state machine, or null when Step Functions wiring is disabled."
+  value       = var.enable_step_functions ? module.step_functions[0].state_machine_arn : null
+}

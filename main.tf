@@ -45,6 +45,7 @@ module "function" {
   environment_variables = var.environment_variables
   log_retention_days    = var.log_retention_days
   execution_policy_json = var.execution_policy_json
+  allowed_invokers      = var.allowed_invokers
 
   artifact_bucket_id       = module.artifact_bucket.bucket_id
   seed_key                 = module.artifact_bucket.seed_key
@@ -72,4 +73,36 @@ module "human_deny" {
   function_arn     = local.function_arn
   human_role_names = var.human_role_names
   tags             = var.tags
+}
+
+# ------------------------------------------------------------- optional wiring
+module "api_gateway" {
+  source = "./modules/api-gateway"
+  count  = var.enable_api_gateway ? 1 : 0
+
+  function_name          = var.function_name
+  function_arn           = module.function.function_arn
+  function_invoke_arn    = module.function.function_invoke_arn
+  routes                 = var.api_gateway.routes
+  stage_name             = var.api_gateway.stage_name
+  payload_format_version = var.api_gateway.payload_format_version
+  cors_configuration     = var.api_gateway.cors_configuration
+  log_retention_days     = var.api_gateway.log_retention_days
+  tags                   = var.tags
+}
+
+module "step_functions" {
+  source = "./modules/step-functions"
+  count  = var.enable_step_functions ? 1 : 0
+
+  function_name          = var.function_name
+  function_arn           = module.function.function_arn
+  partition              = local.partition
+  region                 = local.region
+  state_machine_type     = var.step_functions.state_machine_type
+  definition             = var.step_functions.definition
+  additional_policy_json = var.step_functions.additional_policy_json
+  log_level              = var.step_functions.log_level
+  log_retention_days     = var.step_functions.log_retention_days
+  tags                   = var.tags
 }
